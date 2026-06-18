@@ -36,6 +36,7 @@ pub async fn nl_to_sql(question: &str, schema: &str, model: &str) -> Result<Stri
     let mut buffer = String::new();
     let mut full = String::new();
 
+    eprint!("Thinking");
     while let Some(chunk) = stream.next().await {
         buffer.push_str(std::str::from_utf8(&chunk?).unwrap_or(""));
         while let Some(pos) = buffer.find('\n') {
@@ -44,16 +45,32 @@ pub async fn nl_to_sql(question: &str, schema: &str, model: &str) -> Result<Stri
             if line.trim().is_empty() { continue; }
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
                 if let Some(token) = json["response"].as_str() {
-                    print!("{token}");
-                    let _ = std::io::stdout().flush();
                     full.push_str(token);
+                    eprint!(".");
+                    let _ = std::io::stderr().flush();
                 }
                 if json["done"].as_bool().unwrap_or(false) {
+                    eprintln!();
+                    let sql = strip_markdown_sql(full.trim());
+                    println!("{sql}");
                     println!();
-                    return Ok(full.trim().to_string());
+                    return Ok(sql);
                 }
             }
         }
     }
-    Ok(full.trim().to_string())
+    eprintln!();
+    Ok(strip_markdown_sql(full.trim()))
+}
+
+fn strip_markdown_sql(s: &str) -> String {
+    let s = s.trim();
+    // strip ```sql ... ``` or ``` ... ```
+    let s = if let Some(inner) = s.strip_prefix("```sql").or_else(|| s.strip_prefix("```")) {
+        inner.trim_start_matches('\n')
+    } else {
+        s
+    };
+    let s = if let Some(inner) = s.strip_suffix("```") { inner.trim_end() } else { s };
+    s.trim().to_string()
 }
