@@ -4,7 +4,12 @@ Query local CSV, Parquet, and JSON files from any AI coding tool (RooCode, Curso
 
 ## Install
 
-Download the binary for your platform from [Releases](https://github.com/melihbirim/pipetable-mcp/releases/latest):
+**Option A — cargo install (requires Rust):**
+```bash
+cargo install --git https://github.com/melihbirim/pipetable-mcp
+```
+
+**Option B — download binary** from [Releases](https://github.com/melihbirim/pipetable-mcp/releases/latest):
 
 | Platform | File |
 |---|---|

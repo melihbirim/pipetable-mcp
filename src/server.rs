@@ -67,6 +67,7 @@ pub struct ExecuteSqlParams {
 #[derive(Clone)]
 pub struct McpServer {
     tx: Arc<mpsc::UnboundedSender<(Job, oneshot::Sender<String>)>>,
+    #[allow(dead_code)] // held for rmcp routing machinery
     tool_router: ToolRouter<Self>,
 }
 
