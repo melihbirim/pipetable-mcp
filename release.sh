@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -eo pipefail
 
 # Read current version from Cargo.toml
 CURRENT=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
@@ -32,8 +32,8 @@ esac
 TAG="v$VERSION"
 
 echo "Current: v$CURRENT  →  $TAG"
-read -p "Proceed? [y/N] " confirm
-[[ "$confirm" =~ ^[Yy]$ ]] || exit 0
+read -rp "Proceed? (type 'y' to continue) " confirm
+[[ "$confirm" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
 
 # Update version in Cargo.toml
 sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
