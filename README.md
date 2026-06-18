@@ -1,75 +1,108 @@
-# Pipetable MCP Server
+# Pipetable
 
-Query local CSV, Parquet, and JSON files from any AI coding tool (RooCode, Cursor, Claude Code, Copilot). Powered by DuckDB. Files never leave your machine.
+Query local CSV, Parquet, and JSON files with natural language or SQL. Works as an MCP server (RooCode, Cursor, Claude Code, Copilot) and as a standalone CLI. Powered by DuckDB. Files never leave your machine.
 
 ## Install
 
-### Option A — cargo install
-
-If you have Rust installed, this is the simplest way on any platform:
-
-```bash
-cargo install --git https://github.com/melihbirim/pipetable-mcp
+**macOS / Linux**
+```sh
+curl -fsSL https://pipetable.com/install | sh
 ```
 
-The binary is placed in `~/.cargo/bin/` which is on your PATH after a standard Rust install. No further steps needed.
+**Windows (PowerShell)**
+```powershell
+irm https://pipetable.com/install.ps1 | iex
+```
 
-Don't have Rust? Install it from [rustup.rs](https://rustup.rs) — takes about a minute.
+**cargo install**
+```sh
+cargo install pipetable
+```
 
-### Option B — download binary
+## Usage
 
-Download the pre-built binary for your platform from [Releases](https://github.com/melihbirim/pipetable-mcp/releases/latest):
+### Interactive REPL
 
-| Platform | File |
+```sh
+pipetable ~/data/
+```
+
+Type natural language or SQL at the `>` prompt. Requires [Ollama](https://ollama.com) for NL queries — SQL always works without it.
+
+```
+> show me total revenue by region
+Thinking.....
+SELECT region, SUM(revenue) AS total FROM sales GROUP BY region
+
+region  total
+--------------
+EU      141000
+US       32000
+APAC     17000
+
+> SELECT name, MAX(revenue) FROM sales GROUP BY name ORDER BY 2 DESC LIMIT 1
+1 row(s)
+name   MAX(revenue)
+--------------------
+Carol  91000
+```
+
+Dot commands:
+
+| Command | Description |
 |---|---|
-| macOS (Apple Silicon + Intel) | `pipetable-mcp-macos-universal.tar.gz` |
-| Linux x86_64 | `pipetable-mcp-linux-x86_64.tar.gz` |
-| Linux ARM64 | `pipetable-mcp-linux-arm64.tar.gz` |
-| Windows | `pipetable-mcp-windows-x86_64.zip` |
+| `.scan <path>` | Load a folder or file |
+| `.datasets` | List loaded datasets |
+| `.schema <name>` | Show schema for a dataset |
+| `.models` | List available Ollama models |
+| `.model <name>` | Switch model |
+| `.help` | Show help |
+| `.quit` | Exit |
 
-**macOS:**
-```bash
-tar xzf pipetable-mcp-macos-universal.tar.gz
-chmod +x pipetable-mcp-universal
-sudo mv pipetable-mcp-universal /usr/local/bin/pipetable-mcp
+### One-shot query
+
+```sh
+pipetable ask "who has the highest revenue?" ~/data/
+pipetable ask "SELECT * FROM sales LIMIT 5" ~/data/
 ```
 
-**Linux:**
-```bash
-tar xzf pipetable-mcp-linux-x86_64.tar.gz   # or linux-arm64
-chmod +x pipetable-mcp-linux-x86_64
-sudo mv pipetable-mcp-linux-x86_64 /usr/local/bin/pipetable-mcp
+### MCP server
+
+```sh
+pipetable mcp
 ```
 
-**Windows:** extract the zip, place `pipetable-mcp.exe` somewhere on your PATH.
+Or with a default folder pre-loaded:
+
+```sh
+pipetable ~/data/ mcp
+```
+
+## Natural language setup (optional)
+
+NL queries require [Ollama](https://ollama.com):
+
+```sh
+# Install Ollama
+brew install ollama        # macOS
+# or: https://ollama.com/download
+
+# Pull the model (986 MB, runs on CPU)
+ollama pull qwen2.5-coder:1.5b
+```
+
+SQL queries and the MCP server work without Ollama.
 
 ## Configure your AI tool
 
-### RooCode (VS Code)
-
-Add to `.roo/mcp.json` in your project (or global settings):
+### RooCode / Cursor
 
 ```json
 {
   "mcpServers": {
     "pipetable": {
-      "command": "pipetable-mcp",
-      "args": []
-    }
-  }
-}
-```
-
-### Cursor
-
-Add to `~/.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "pipetable": {
-      "command": "pipetable-mcp",
-      "args": []
+      "command": "pipetable",
+      "args": ["mcp"]
     }
   }
 }
@@ -78,26 +111,24 @@ Add to `~/.cursor/mcp.json`:
 ### Claude Code
 
 ```bash
-claude mcp add pipetable pipetable-mcp
+claude mcp add pipetable pipetable mcp
 ```
 
 ### VS Code GitHub Copilot
-
-Add to `.vscode/mcp.json`:
 
 ```json
 {
   "servers": {
     "pipetable": {
       "type": "stdio",
-      "command": "pipetable-mcp",
-      "args": []
+      "command": "pipetable",
+      "args": ["mcp"]
     }
   }
 }
 ```
 
-## Tools
+## MCP tools
 
 | Tool | Description |
 |---|---|
@@ -105,14 +136,6 @@ Add to `.vscode/mcp.json`:
 | `list_datasets` | List registered datasets with column types |
 | `get_schema` | Full schema + 3 sample rows for a dataset |
 | `execute_sql` | Run SQL against registered datasets via DuckDB |
-
-## Example usage
-
-Ask your AI assistant:
-
-> "Scan my ~/data folder and show me total revenue by region from sales.csv"
-
-The assistant will call `scan_folder`, then `execute_sql` — results come from DuckDB, not hallucination.
 
 ## License
 
