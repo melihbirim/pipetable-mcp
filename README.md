@@ -8,17 +8,23 @@ Download the binary for your platform from [Releases](https://github.com/melihbi
 
 | Platform | File |
 |---|---|
-| macOS Apple Silicon | `pipetable-mcp-macos-arm64.tar.gz` |
-| macOS Intel | `pipetable-mcp-macos-x86_64.tar.gz` |
+| macOS (Apple Silicon + Intel) | `pipetable-mcp-macos-universal.tar.gz` |
 | Linux x86_64 | `pipetable-mcp-linux-x86_64.tar.gz` |
 | Linux ARM64 | `pipetable-mcp-linux-arm64.tar.gz` |
 | Windows | `pipetable-mcp-windows-x86_64.zip` |
 
-**macOS / Linux:**
+**macOS:**
 ```bash
-tar xzf pipetable-mcp-<platform>.tar.gz
-chmod +x pipetable-mcp-<platform>
-sudo mv pipetable-mcp-<platform> /usr/local/bin/pipetable-mcp
+tar xzf pipetable-mcp-macos-universal.tar.gz
+chmod +x pipetable-mcp-universal
+sudo mv pipetable-mcp-universal /usr/local/bin/pipetable-mcp
+```
+
+**Linux:**
+```bash
+tar xzf pipetable-mcp-linux-x86_64.tar.gz   # or linux-arm64
+chmod +x pipetable-mcp-linux-x86_64
+sudo mv pipetable-mcp-linux-x86_64 /usr/local/bin/pipetable-mcp
 ```
 
 **Windows:** extract the zip, place `pipetable-mcp.exe` somewhere on your PATH.

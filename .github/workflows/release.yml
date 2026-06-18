@@ -16,11 +16,7 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            target: aarch64-apple-darwin
-            artifact: pipetable-mcp-macos-arm64
-          - os: macos-13
-            target: x86_64-apple-darwin
-            artifact: pipetable-mcp-macos-x86_64
+            artifact: pipetable-mcp-macos-universal
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: pipetable-mcp-windows-x86_64
@@ -37,7 +33,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.target }}
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -46,28 +42,39 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ matrix.target }}-cargo-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ${{ matrix.target }}-cargo-
+          key: ${{ matrix.artifact }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ matrix.artifact }}-cargo-
 
       - name: Install Linux build deps
         if: runner.os == 'Linux'
         run: sudo apt-get update -q && sudo apt-get install -y cmake g++
 
-      - name: Build (Unix)
-        if: runner.os != 'Windows'
+      - name: Build macOS universal
+        if: runner.os == 'macOS'
+        run: |
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+          lipo -create \
+            target/aarch64-apple-darwin/release/pipetable-mcp \
+            target/x86_64-apple-darwin/release/pipetable-mcp \
+            -output pipetable-mcp-universal
+          tar czf ${{ matrix.artifact }}.tar.gz pipetable-mcp-universal
+
+      - name: Build Linux
+        if: runner.os == 'Linux'
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Build (Windows)
+      - name: Build Windows
         if: runner.os == 'Windows'
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
+      - name: Package Linux
+        if: runner.os == 'Linux'
         run: |
           cp target/${{ matrix.target }}/release/pipetable-mcp ${{ matrix.artifact }}
           tar czf ${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
 
-      - name: Package (Windows)
+      - name: Package Windows
         if: runner.os == 'Windows'
         run: |
           copy target\${{ matrix.target }}\release\pipetable-mcp.exe ${{ matrix.artifact }}.exe
