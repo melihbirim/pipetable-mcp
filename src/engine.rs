@@ -110,12 +110,14 @@ impl State {
     }
 
     /// Compact schema string for LLM prompts.
-    pub fn schema_prompt(&self) -> String {
-        if self.datasets.is_empty() {
-            return String::new();
-        }
+    /// If `only` is non-empty, only include those dataset names.
+    pub fn schema_prompt(&self, only: &[&str]) -> String {
+        if self.datasets.is_empty() { return String::new(); }
         let mut out = String::new();
         for ds in self.datasets.values() {
+            if !only.is_empty() && !only.iter().any(|n| n.eq_ignore_ascii_case(&ds.name)) {
+                continue;
+            }
             out.push_str(&format!("Table: {}\nColumns:", ds.name));
             for col in &ds.columns {
                 out.push_str(&format!(" {} ({}),", col.name, col.col_type));
