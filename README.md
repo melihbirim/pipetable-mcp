@@ -47,14 +47,12 @@ name   MAX(revenue)
 Carol  91000
 ```
 
-**Focus a specific table** when your folder has many unrelated files:
+**Relevant tables are selected automatically.** When your folder has many unrelated files, pipetable scores each table by matching your question's keywords against table names and column names — only the best-matching tables are sent to the model.
 
 ```
-> sales: show me revenue by region
-> sales,orders: compare revenue to order count
+> show me revenue by region       ← auto-selects the table with a "revenue" column
+> how many products are inactive  ← auto-selects the products table
 ```
-
-The prefix (`table:`) sends only that table's schema to the model. Without a prefix all loaded tables are included.
 
 **Re-scanning is incremental** — only new or changed files are reloaded:
 

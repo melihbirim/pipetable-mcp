@@ -110,14 +110,40 @@ impl State {
     }
 
     /// Compact schema string for LLM prompts.
-    /// If `only` is non-empty, only include those dataset names.
-    pub fn schema_prompt(&self, only: &[&str]) -> String {
+    /// Auto-selects relevant tables by scoring keyword overlap with the question.
+    /// Falls back to all tables if nothing scores > 0.
+    pub fn schema_prompt(&self, question: &str) -> String {
         if self.datasets.is_empty() { return String::new(); }
+
+        // Tokenize question: meaningful words only (len > 2, alphanumeric)
+        let q_words: Vec<String> = question
+            .split(|c: char| !c.is_alphanumeric())
+            .map(|w| w.to_lowercase())
+            .filter(|w| w.len() > 2)
+            .collect();
+
+        // Score each table: count matching tokens in name + column names
+        let mut scored: Vec<(&DatasetInfo, usize)> = self.datasets.values().map(|ds| {
+            let haystack = format!(
+                "{} {}",
+                ds.name.to_lowercase(),
+                ds.columns.iter().map(|c| c.name.to_lowercase()).collect::<Vec<_>>().join(" ")
+            );
+            let score = q_words.iter().filter(|w| haystack.contains(w.as_str())).count();
+            (ds, score)
+        }).collect();
+
+        scored.sort_by(|a, b| b.1.cmp(&a.1));
+
+        // Use tables with score > 0; if none match, use all
+        let relevant: Vec<&DatasetInfo> = if scored.iter().any(|(_, s)| *s > 0) {
+            scored.iter().filter(|(_, s)| *s > 0).map(|(ds, _)| *ds).collect()
+        } else {
+            scored.iter().map(|(ds, _)| *ds).collect()
+        };
+
         let mut out = String::new();
-        for ds in self.datasets.values() {
-            if !only.is_empty() && !only.iter().any(|n| n.eq_ignore_ascii_case(&ds.name)) {
-                continue;
-            }
+        for ds in relevant {
             out.push_str(&format!("Table: {}\nColumns:", ds.name));
             for col in &ds.columns {
                 out.push_str(&format!(" {} ({}),", col.name, col.col_type));

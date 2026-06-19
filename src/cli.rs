@@ -28,11 +28,11 @@ Querying — SQL:
 
 Querying — natural language (requires Ollama):
   show me top 5 customers by revenue
-  sales: how many rows are there?           ← focus one table
-  sales,orders: compare revenue to orders  ← focus multiple tables
+  how many rows are there?
+  which region had the highest sales last month?
 
-  Prefix with "table:" to send only that schema to the model.
-  Without a prefix all loaded tables are included.
+  Relevant tables are selected automatically based on your question.
+  Mention a column or concept and the right table is used.
 
 Tips:
   · Re-scanning a folder only reloads new or changed files
@@ -194,9 +194,7 @@ pub async fn ask(question: &str, path: Option<&str>, model: Option<&str>) -> Res
         return Ok(());
     }
 
-    let (tables, question) = parse_table_prefix(question, &state);
-    let filter: Vec<&str> = tables.iter().map(|s| s.as_str()).collect();
-    let schema = state.schema_prompt(&filter);
+    let schema = state.schema_prompt(question);
     if schema.is_empty() {
         eprintln!("No datasets loaded. Pass a path: pipetable ask \"...\" ~/data/");
         return Ok(());
@@ -252,20 +250,12 @@ async fn handle_input(line: &str, state: &mut State, model: &mut String, ollama_
             return;
         }
 
-        // Parse optional "table1,table2: question" prefix
-        let (tables, question) = parse_table_prefix(line, state);
-        let filter: Vec<&str> = tables.iter().map(|s| s.as_str()).collect();
-
-        if !filter.is_empty() {
-            eprintln!("{} {}", "Context:".dimmed(), filter.join(", ").bold());
-        }
-
-        let schema = state.schema_prompt(&filter);
+        let schema = state.schema_prompt(line);
         if schema.is_empty() {
             println!("{}", "No datasets loaded. Use .scan <path> first.".yellow());
             return;
         }
-        match ollama::nl_to_sql(question, &schema, model).await {
+        match ollama::nl_to_sql(line, &schema, model).await {
             Ok(sql) if !sql.is_empty() => {
                 println!();
                 println!("{}", state.query(&sql));
@@ -274,26 +264,6 @@ async fn handle_input(line: &str, state: &mut State, model: &mut String, ollama_
             Err(e) => println!("{} {e}", "Ollama error:".red().bold()),
         }
     }
-}
-
-/// Parse "sales,orders: question text" → (["sales","orders"], "question text")
-/// Falls back to ([], original) if no valid prefix found.
-fn parse_table_prefix<'a>(input: &'a str, state: &State) -> (Vec<String>, &'a str) {
-    if let Some(colon) = input.find(':') {
-        let prefix = &input[..colon];
-        let question = input[colon + 1..].trim();
-        if !question.is_empty() {
-            let names: Vec<String> = prefix
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| state.datasets.contains_key(s.as_str()))
-                .collect();
-            if !names.is_empty() {
-                return (names, question);
-            }
-        }
-    }
-    (vec![], input)
 }
 
 fn is_sql(s: &str) -> bool {
