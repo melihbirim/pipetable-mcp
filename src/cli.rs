@@ -36,8 +36,8 @@ pub async fn run(path: Option<&str>, model: Option<&str>) -> Result<()> {
 
     // Auto-scan if path given
     if let Some(p) = path {
-        let out = state.scan(p);
-        println!("{out}");
+        state.scan_verbose(p);
+        eprintln!();
     }
 
     if ollama_ok {
@@ -74,7 +74,8 @@ pub async fn ask(question: &str, path: Option<&str>, model: Option<&str>) -> Res
     let model = model.unwrap_or(ollama::DEFAULT_MODEL);
 
     if let Some(p) = path {
-        state.scan(p);
+        state.scan_verbose(p);
+        eprintln!();
     }
 
     if is_sql(question) {
@@ -107,7 +108,8 @@ pub async fn ask(question: &str, path: Option<&str>, model: Option<&str>) -> Res
 
 async fn handle_input(line: &str, state: &mut State, model: &mut String, ollama_ok: bool) {
     if let Some(rest) = line.strip_prefix(".scan ") {
-        println!("{}", state.scan(rest.trim()));
+        state.scan_verbose(rest.trim());
+        println!();
     } else if line == ".datasets" || line == ".list" {
         println!("{}", state.list());
     } else if let Some(rest) = line.strip_prefix(".schema ") {

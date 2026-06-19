@@ -38,7 +38,11 @@ impl State {
     }
 
     pub fn scan(&mut self, folder: &str) -> String {
-        do_scan(self, folder)
+        do_scan(self, folder, None)
+    }
+
+    pub fn scan_verbose(&mut self, folder: &str) {
+        do_scan(self, folder, Some(&|msg: &str| eprintln!("{msg}")));
     }
 
     pub fn list(&self) -> String {
@@ -125,14 +129,21 @@ impl State {
 
 const SUPPORTED: &[&str] = &["csv", "parquet", "json", "ndjson", "tsv"];
 
-pub fn do_scan(s: &mut State, folder: &str) -> String {
+pub fn do_scan(s: &mut State, folder: &str, progress: Option<&dyn Fn(&str)>) -> String {
     if !Path::new(folder).exists() {
         return format!("Path does not exist: {folder}");
     }
-    let mut ok = 0usize;
-    let mut skipped: Vec<String> = Vec::new();
 
-    const MAX_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2GB hard cap
+    let emit = |msg: String| {
+        if let Some(f) = progress { f(&msg); }
+    };
+
+    emit(format!("{} {}", "Scanning".dimmed(), folder.dimmed()));
+
+    let mut ok = 0usize;
+    let mut skip = 0usize;
+
+    const MAX_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024;
 
     for entry in WalkDir::new(folder).max_depth(3).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
@@ -145,9 +156,12 @@ pub fn do_scan(s: &mut State, folder: &str) -> String {
         let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
         if size > MAX_FILE_SIZE {
-            skipped.push(format!("  {} {} — too large ({}), skipped", "[skip]", path.display(), fmt_bytes(size)));
+            emit(format!("  {} {} ({})", "✗".red(), path.display(), fmt_bytes(size)));
+            skip += 1;
             continue;
         }
+
+        emit(format!("  {} {} …", "→".dimmed(), name.dimmed()));
 
         let view_result = match ext.as_str() {
             "csv" | "tsv" => create_csv_view(&s.conn, &path_str, &name),
@@ -170,36 +184,40 @@ pub fn do_scan(s: &mut State, folder: &str) -> String {
             _ => continue,
         };
 
-        if let Err(e) = view_result {
-            skipped.push(format!("  [skip] {} - {}", path.display(), e));
-            continue;
+        match view_result {
+            Ok(()) => {
+                let columns = describe(&s.conn, &name).unwrap_or_default();
+                let ncols = columns.len();
+                emit(format!(
+                    "  {} {}  {} cols  {}",
+                    "✓".green(),
+                    name.bold(),
+                    ncols.to_string().dimmed(),
+                    fmt_bytes(size).dimmed()
+                ));
+                s.datasets.insert(name.clone(), DatasetInfo {
+                    name, path: path_str, format: ext, columns, row_count: -1, size_bytes: size,
+                });
+                ok += 1;
+            }
+            Err(e) => {
+                emit(format!("  {} {} — {}", "✗".red(), name.dimmed(), e.dimmed()));
+                skip += 1;
+            }
         }
-
-        let columns = describe(&s.conn, &name).unwrap_or_default();
-
-        s.datasets.insert(name.clone(), DatasetInfo {
-            name, path: path_str, format: ext, columns, row_count: -1, size_bytes: size,
-        });
-        ok += 1;
     }
 
-    let header = format!("Scanned: {}\nRegistered {} dataset(s).\n", folder, ok)
-        .dimmed()
-        .to_string();
-    let mut out = format!("{header}\n");
+    let summary = if skip > 0 {
+        format!("\nDone. {} registered, {} skipped.", ok, skip)
+    } else {
+        format!("\nDone. {} file(s) registered.", ok)
+    };
+    emit(summary.dimmed().to_string());
+
+    // Return compact string for MCP
+    let mut out = format!("Scanned {folder}. {ok} dataset(s) registered.\n");
     for ds in s.datasets.values() {
-        let rows = if ds.row_count >= 0 { ds.row_count.to_string() } else { "?".into() };
-        out.push_str(&format!(
-            "  {} {}  {} rows  {}\n",
-            "✓".green(),
-            ds.name.bold(),
-            rows.dimmed(),
-            fmt_bytes(ds.size_bytes).dimmed()
-        ));
-    }
-    if !skipped.is_empty() {
-        out.push_str(&format!("\n{}\n", format!("Skipped {} file(s):", skipped.len()).yellow()));
-        for s in &skipped { out.push_str(&format!("  {}\n", s.dimmed())); }
+        out.push_str(&format!("  {} ({}, {})\n", ds.name, ds.format.to_uppercase(), fmt_bytes(ds.size_bytes)));
     }
     out
 }
