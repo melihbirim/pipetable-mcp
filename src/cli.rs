@@ -1,6 +1,13 @@
 use anyhow::Result;
 use colored::Colorize;
-use rustyline::{DefaultEditor, error::ReadlineError};
+use rustyline::completion::{Completer, FilenameCompleter, Pair};
+use rustyline::error::ReadlineError;
+use rustyline::highlight::Highlighter;
+use rustyline::hint::Hinter;
+use rustyline::history::DefaultHistory;
+use rustyline::validate::Validator;
+use rustyline::{Context, Editor, Helper};
+use std::borrow::Cow;
 
 use crate::engine::State;
 use crate::ollama;
@@ -19,24 +26,78 @@ Anything else is treated as a natural language question (requires Ollama)
 or a SQL query (starts with SELECT, WITH, etc.)
 "#;
 
+// ─── Tab completion + readline helper ────────────────────────────────────────
+
+struct CliHelper {
+    file_completer: FilenameCompleter,
+}
+
+impl CliHelper {
+    fn new() -> Self { Self { file_completer: FilenameCompleter::new() } }
+}
+
+impl Helper for CliHelper {}
+
+impl Completer for CliHelper {
+    type Candidate = Pair;
+
+    fn complete(&self, line: &str, pos: usize, ctx: &Context<'_>) -> rustyline::Result<(usize, Vec<Pair>)> {
+        // Dot-command completion (no space yet = still typing the command)
+        if line.starts_with('.') && !line.contains(' ') {
+            const CMDS: &[&str] = &[
+                ".scan ", ".datasets", ".schema ", ".models", ".model ", ".help", ".quit",
+            ];
+            let matches: Vec<Pair> = CMDS.iter()
+                .filter(|c| c.trim_end().starts_with(line))
+                .map(|c| Pair { display: c.trim_end().to_string(), replacement: c.to_string() })
+                .collect();
+            if !matches.is_empty() {
+                return Ok((0, matches));
+            }
+        }
+
+        // Path completion after .scan or .schema
+        if line.starts_with(".scan ") || line.starts_with(".schema ") {
+            return self.file_completer.complete(line, pos, ctx);
+        }
+
+        Ok((pos, vec![]))
+    }
+}
+
+impl Hinter for CliHelper {
+    type Hint = String;
+    fn hint(&self, _line: &str, _pos: usize, _ctx: &Context<'_>) -> Option<String> { None }
+}
+
+impl Highlighter for CliHelper {
+    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(&'s self, prompt: &'p str, _default: bool) -> Cow<'b, str> {
+        Cow::Borrowed(prompt)
+    }
+    fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
+        Cow::Borrowed(hint)
+    }
+    fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
+        Cow::Borrowed(line)
+    }
+    fn highlight_char(&self, _line: &str, _pos: usize, _forced: bool) -> bool { false }
+}
+
+impl Validator for CliHelper {}
+
+// ─── REPL ────────────────────────────────────────────────────────────────────
+
 pub async fn run(path: Option<&str>, model: Option<&str>) -> Result<()> {
     let mut state = State::new()?;
     let mut current_model = model.unwrap_or(ollama::DEFAULT_MODEL).to_string();
-
-    // Check Ollama availability once at startup
     let ollama_ok = ollama::is_available().await;
 
-    eprintln!(
-        "{}  {}",
-        "Pipetable".bright_yellow().bold(),
-        "https://pipetable.com".dimmed()
-    );
+    eprintln!("{} {}", "Pipetable".bright_yellow().bold(), "https://pipetable.com".dimmed());
     eprintln!("{}", "DuckDB query engine · local files only".dimmed());
     eprintln!();
 
-    // Auto-scan if path given
     if let Some(p) = path {
-        state.scan_verbose(p);
+        state.scan_verbose(p, true);
         eprintln!();
     }
 
@@ -50,12 +111,12 @@ pub async fn run(path: Option<&str>, model: Option<&str>) -> Result<()> {
     eprintln!("{}", "Type .help for commands. Ctrl+D to exit.".dimmed());
     eprintln!();
 
-    let mut rl = DefaultEditor::new()?;
+    let mut rl = Editor::<CliHelper, DefaultHistory>::new()?;
+    rl.set_helper(Some(CliHelper::new()));
     let prompt = format!("{} ", ">".bright_yellow().bold());
 
     loop {
-        let readline = rl.readline(&prompt);
-        match readline {
+        match rl.readline(&prompt) {
             Ok(line) => {
                 let line = line.trim().to_string();
                 if line.is_empty() { continue; }
@@ -74,7 +135,7 @@ pub async fn ask(question: &str, path: Option<&str>, model: Option<&str>) -> Res
     let model = model.unwrap_or(ollama::DEFAULT_MODEL);
 
     if let Some(p) = path {
-        state.scan_verbose(p);
+        state.scan_verbose(p, false);
         eprintln!();
     }
 
@@ -108,7 +169,7 @@ pub async fn ask(question: &str, path: Option<&str>, model: Option<&str>) -> Res
 
 async fn handle_input(line: &str, state: &mut State, model: &mut String, ollama_ok: bool) {
     if let Some(rest) = line.strip_prefix(".scan ") {
-        state.scan_verbose(rest.trim());
+        state.scan_verbose(rest.trim(), true);
         println!();
     } else if line == ".datasets" || line == ".list" {
         println!("{}", state.list());

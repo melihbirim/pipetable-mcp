@@ -38,11 +38,11 @@ impl State {
     }
 
     pub fn scan(&mut self, folder: &str) -> String {
-        do_scan(self, folder, None)
+        do_scan(self, folder, None, false)
     }
 
-    pub fn scan_verbose(&mut self, folder: &str) {
-        do_scan(self, folder, Some(&|msg: &str| eprintln!("{msg}")));
+    pub fn scan_verbose(&mut self, folder: &str, interactive: bool) {
+        do_scan(self, folder, Some(&|msg: &str| eprintln!("{msg}")), interactive);
     }
 
     pub fn list(&self) -> String {
@@ -129,20 +129,58 @@ impl State {
 
 const SUPPORTED: &[&str] = &["csv", "parquet", "json", "ndjson", "tsv"];
 
-pub fn do_scan(s: &mut State, folder: &str, progress: Option<&dyn Fn(&str)>) -> String {
+pub fn do_scan(s: &mut State, folder: &str, progress: Option<&dyn Fn(&str)>, interactive: bool) -> String {
+    use std::collections::BTreeMap;
+    use std::io::Write;
+
     if !Path::new(folder).exists() {
         return format!("Path does not exist: {folder}");
     }
 
-    let emit = |msg: String| {
-        if let Some(f) = progress { f(&msg); }
-    };
+    let emit = |msg: String| { if let Some(f) = progress { f(&msg); } };
 
-    emit(format!("{} {}", "Scanning".dimmed(), folder.dimmed()));
+    // ── Phase 1: pre-scan count ───────────────────────────────────────────────
+    let mut type_counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut total = 0usize;
+    for entry in WalkDir::new(folder).max_depth(3).into_iter().filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if !path.is_file() { continue; }
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        if !SUPPORTED.contains(&ext.as_str()) { continue; }
+        *type_counts.entry(ext.to_uppercase()).or_insert(0) += 1;
+        total += 1;
+    }
 
+    if total == 0 {
+        emit(format!("{}", "No supported data files found (CSV, Parquet, JSON, TSV).".yellow()));
+        return format!("No supported files in {folder}");
+    }
+
+    let type_summary = type_counts.iter()
+        .map(|(ext, n)| format!("{}×{}", n.to_string().bright_cyan(), ext))
+        .collect::<Vec<_>>()
+        .join("  ");
+    emit(format!(
+        "Found {}  ({})",
+        format!("{} files", total).bold(),
+        type_summary
+    ));
+
+    // ── Phase 2: confirm if many ──────────────────────────────────────────────
+    if interactive && total > 5 {
+        eprint!("{}", format!("Scan all {}? [Y/n] ", total).bright_yellow());
+        let _ = std::io::stderr().flush();
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).ok();
+        if input.trim().eq_ignore_ascii_case("n") {
+            emit("Cancelled.".yellow().to_string());
+            return "Scan cancelled.".to_string();
+        }
+    }
+
+    // ── Phase 3: register each file with timing ───────────────────────────────
     let mut ok = 0usize;
     let mut skip = 0usize;
-
     const MAX_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024;
 
     for entry in WalkDir::new(folder).max_depth(3).into_iter().filter_map(|e| e.ok()) {
@@ -156,44 +194,41 @@ pub fn do_scan(s: &mut State, folder: &str, progress: Option<&dyn Fn(&str)>) -> 
         let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
         if size > MAX_FILE_SIZE {
-            emit(format!("  {} {} ({})", "✗".red(), path.display(), fmt_bytes(size)));
+            emit(format!("  {}  {}  {}", "✗".red(), name.dimmed(), "too large".dimmed()));
             skip += 1;
             continue;
         }
 
-        emit(format!("  {} {} …", "→".dimmed(), name.dimmed()));
-
+        let t = std::time::Instant::now();
         let view_result = match ext.as_str() {
             "csv" | "tsv" => create_csv_view(&s.conn, &path_str, &name),
             "parquet" => {
                 let safe = path_str.replace('\'', "''");
-                s.conn
-                    .execute_batch(&format!(
-                        "CREATE OR REPLACE VIEW \"{name}\" AS SELECT * FROM parquet_scan('{safe}')"
-                    ))
-                    .map_err(|e| e.to_string())
+                s.conn.execute_batch(&format!(
+                    "CREATE OR REPLACE VIEW \"{name}\" AS SELECT * FROM parquet_scan('{safe}')"
+                )).map_err(|e| e.to_string())
             }
             "json" | "ndjson" => {
                 let safe = path_str.replace('\'', "''");
-                s.conn
-                    .execute_batch(&format!(
-                        "CREATE OR REPLACE VIEW \"{name}\" AS SELECT * FROM read_json_auto('{safe}')"
-                    ))
-                    .map_err(|e| e.to_string())
+                s.conn.execute_batch(&format!(
+                    "CREATE OR REPLACE VIEW \"{name}\" AS SELECT * FROM read_json_auto('{safe}')"
+                )).map_err(|e| e.to_string())
             }
             _ => continue,
         };
+        let ms = t.elapsed().as_millis();
 
         match view_result {
             Ok(()) => {
                 let columns = describe(&s.conn, &name).unwrap_or_default();
                 let ncols = columns.len();
                 emit(format!(
-                    "  {} {}  {} cols  {}",
+                    "  {}  {:<24}  {:>4} cols  {:>8}  {}",
                     "✓".green(),
                     name.bold(),
                     ncols.to_string().dimmed(),
-                    fmt_bytes(size).dimmed()
+                    fmt_bytes(size).dimmed(),
+                    format!("{ms}ms").dimmed()
                 ));
                 s.datasets.insert(name.clone(), DatasetInfo {
                     name, path: path_str, format: ext, columns, row_count: -1, size_bytes: size,
@@ -201,20 +236,19 @@ pub fn do_scan(s: &mut State, folder: &str, progress: Option<&dyn Fn(&str)>) -> 
                 ok += 1;
             }
             Err(e) => {
-                emit(format!("  {} {} — {}", "✗".red(), name.dimmed(), e.dimmed()));
+                emit(format!("  {}  {:<24}  {}", "✗".red(), name.dimmed(), e.dimmed()));
                 skip += 1;
             }
         }
     }
 
-    let summary = if skip > 0 {
-        format!("\nDone. {} registered, {} skipped.", ok, skip)
+    let done = if skip > 0 {
+        format!("{} {} registered, {} skipped", "Done.".green().bold(), ok, skip)
     } else {
-        format!("\nDone. {} file(s) registered.", ok)
+        format!("{} {} registered", "Done.".green().bold(), ok)
     };
-    emit(summary.dimmed().to_string());
+    emit(format!("\n{done}"));
 
-    // Return compact string for MCP
     let mut out = format!("Scanned {folder}. {ok} dataset(s) registered.\n");
     for ds in s.datasets.values() {
         out.push_str(&format!("  {} ({}, {})\n", ds.name, ds.format.to_uppercase(), fmt_bytes(ds.size_bytes)));

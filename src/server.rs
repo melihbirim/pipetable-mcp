@@ -72,7 +72,7 @@ impl McpServer {
 impl McpServer {
     #[tool(description = "Scan a folder and register all data files for querying. Call this first. Supports CSV, Parquet, JSON, TSV up to 3 folders deep.")]
     async fn scan_folder(&self, Parameters(p): Parameters<ScanFolderParams>) -> String {
-        self.run(move |s| do_scan(s, &p.path, None)).await
+        self.run(move |s| do_scan(s, &p.path, None, false)).await
     }
 
     #[tool(description = "List all registered datasets with their column names and types. Run scan_folder first.")]
