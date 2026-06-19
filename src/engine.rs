@@ -132,6 +132,8 @@ pub fn do_scan(s: &mut State, folder: &str) -> String {
     let mut ok = 0usize;
     let mut skipped: Vec<String> = Vec::new();
 
+    const MAX_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2GB hard cap
+
     for entry in WalkDir::new(folder).max_depth(3).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
         if !path.is_file() { continue; }
@@ -141,6 +143,11 @@ pub fn do_scan(s: &mut State, folder: &str) -> String {
         let name = sanitize(&path.file_stem().and_then(|s| s.to_str()).unwrap_or("file"));
         let path_str = path.to_string_lossy().to_string();
         let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+
+        if size > MAX_FILE_SIZE {
+            skipped.push(format!("  {} {} — too large ({}), skipped", "[skip]", path.display(), fmt_bytes(size)));
+            continue;
+        }
 
         let view_result = match ext.as_str() {
             "csv" | "tsv" => create_csv_view(&s.conn, &path_str, &name),
@@ -169,16 +176,9 @@ pub fn do_scan(s: &mut State, folder: &str) -> String {
         }
 
         let columns = describe(&s.conn, &name).unwrap_or_default();
-        let row_count = if size <= 200 * 1024 * 1024 {
-            s.conn
-                .query_row(&format!("SELECT COUNT(*) FROM \"{name}\""), [], |r| r.get(0))
-                .unwrap_or(-1)
-        } else {
-            -1
-        };
 
         s.datasets.insert(name.clone(), DatasetInfo {
-            name, path: path_str, format: ext, columns, row_count, size_bytes: size,
+            name, path: path_str, format: ext, columns, row_count: -1, size_bytes: size,
         });
         ok += 1;
     }
