@@ -222,13 +222,17 @@ pub fn do_scan(s: &mut State, folder: &str, progress: Option<&dyn Fn(&str)>, int
             Ok(()) => {
                 let columns = describe(&s.conn, &name).unwrap_or_default();
                 let ncols = columns.len();
+                let col_name  = truncate_pad(&name, 36);
+                let col_ncols = format!("{:>4} cols", ncols);
+                let col_size  = format!("{:>8}", fmt_bytes(size));
+                let col_ms    = format!("{:>6}ms", ms);
                 emit(format!(
-                    "  {}  {:<24}  {:>4} cols  {:>8}  {}",
+                    "  {}  {}  {}  {}  {}",
                     "✓".green(),
-                    name.bold(),
-                    ncols.to_string().dimmed(),
-                    fmt_bytes(size).dimmed(),
-                    format!("{ms}ms").dimmed()
+                    col_name.bold(),
+                    col_ncols.dimmed(),
+                    col_size.dimmed(),
+                    col_ms.dimmed(),
                 ));
                 s.datasets.insert(name.clone(), DatasetInfo {
                     name, path: path_str, format: ext, columns, row_count: -1, size_bytes: size,
@@ -236,7 +240,8 @@ pub fn do_scan(s: &mut State, folder: &str, progress: Option<&dyn Fn(&str)>, int
                 ok += 1;
             }
             Err(e) => {
-                emit(format!("  {}  {:<24}  {}", "✗".red(), name.dimmed(), e.dimmed()));
+                let col_name = truncate_pad(&name, 36);
+                emit(format!("  {}  {}  {}", "✗".red(), col_name.dimmed(), e.dimmed()));
                 skip += 1;
             }
         }
@@ -410,6 +415,14 @@ pub fn ensure_limit(sql: &str, cap: usize) -> String {
         format!("{} LIMIT {cap}", sql.trim().trim_end_matches(';'))
     } else {
         sql.to_string()
+    }
+}
+
+pub fn truncate_pad(s: &str, width: usize) -> String {
+    if s.len() > width {
+        format!("{}~", &s[..width - 1])
+    } else {
+        format!("{:<width$}", s)
     }
 }
 
