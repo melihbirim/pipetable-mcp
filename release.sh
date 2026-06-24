@@ -41,13 +41,13 @@ sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
 # Quick compile check before tagging (actual binaries built by CI)
 cargo check 2>&1 | tail -1
 
-cargo publish
-
 git add Cargo.toml Cargo.lock
 git commit -m "$TAG"
 git tag "$TAG"
 git push origin main
 git push origin "$TAG"
+
+cargo publish
 
 echo ""
 echo "Tagged $TAG and pushed. GitHub Actions is now building:"
