@@ -2,7 +2,7 @@
 
 Gives your AI coding tool real data access.
 
-![Pipetable demo](https://github.com/melihbirim/pipetable/raw/main/demo/demo.gif)
+![Pipetable demo](https://github.com/melihbirim/pipetable/raw/main/demo/demo_nlq.gif)
  Point it at a folder of CSV, Parquet, JSON, or TSV files — your AI can now query them with real SQL instead of hallucinating.
 
 Works as an MCP server for Claude Code, Cursor, RooCode, and Copilot. Also ships as a standalone CLI for interactive data exploration. Powered by DuckDB. Files never leave your machine.
