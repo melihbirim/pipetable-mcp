@@ -151,7 +151,7 @@ Priority: Anthropic → OpenAI-compatible → Ollama. SQL and MCP work without a
 
 ## Supported formats
 
-CSV, Parquet, JSON, NDJSON, TSV. Files up to 2GB. Folders scanned up to 3 levels deep. Hidden files and common noise directories (`node_modules`, `target`, `.git`) are skipped automatically.
+CSV, Parquet, JSON, NDJSON, TSV, Excel (xlsx, xls, xlsm). Files up to 2GB. Folders scanned up to 3 levels deep. Hidden files and common noise directories (`node_modules`, `target`, `.git`) are skipped automatically.
 
 ## License
 
