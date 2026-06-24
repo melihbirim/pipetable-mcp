@@ -5,7 +5,7 @@ edition = "2021"
 description = "Query local data files with natural language or SQL — MCP server + CLI"
 homepage = "https://pipetable.com"
 repository = "https://github.com/melihbirim/pipetable"
-license-file = "LICENSE"
+license = "MIT"
 keywords = ["mcp", "duckdb", "data", "csv", "parquet"]
 categories = ["command-line-utilities", "database"]
 

@@ -125,6 +125,6 @@ impl McpServer {
 #[tool_handler(
     name = "pipetable",
     version = "0.1.0",
-    instructions = "Local data query engine. Files never leave the machine. Workflow: (1) scan_folder to register files, (2) list_datasets to see schemas, (3) execute_sql with real SQL. Results come from DuckDB - ground truth, no hallucination."
+    instructions = "Local data query engine. Files never leave the machine. Workflow: (1) scan_folder to register files, (2) list_datasets to see schemas, (3) execute_sql with real SQL. Results come from DuckDB — ground truth, no hallucination. MIT licensed."
 )]
 impl ServerHandler for McpServer {}
