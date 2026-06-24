@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::Result;
+use calamine::{Data, Reader, open_workbook_auto};
 use colored::Colorize;
 use duckdb::{Connection, types::ValueRef};
 use serde::{Deserialize, Serialize};
@@ -194,7 +195,7 @@ impl State {
 
 // ─── Scan ─────────────────────────────────────────────────────────────────────
 
-const SUPPORTED: &[&str] = &["csv", "parquet", "json", "ndjson", "tsv"];
+const SUPPORTED: &[&str] = &["csv", "parquet", "json", "ndjson", "tsv", "xlsx", "xls", "xlsm"];
 
 pub fn do_scan(s: &mut State, folder: &str, progress: Option<&dyn Fn(&str)>, interactive: bool) -> String {
     use std::collections::BTreeMap;
@@ -303,6 +304,7 @@ pub fn do_scan(s: &mut State, folder: &str, progress: Option<&dyn Fn(&str)>, int
                     "CREATE OR REPLACE VIEW \"{name}\" AS SELECT * FROM read_json_auto('{safe}')"
                 )).map_err(|e| e.to_string())
             }
+            "xlsx" | "xls" | "xlsm" => load_excel(&s.conn, &path_str, &name),
             _ => continue,
         };
         let ms = t.elapsed().as_millis();
@@ -369,6 +371,68 @@ pub fn create_csv_view(conn: &Connection, path: &str, name: &str) -> Result<(), 
         }
     }
     Err(last)
+}
+
+pub fn load_excel(conn: &Connection, path: &str, name: &str) -> Result<(), String> {
+    let mut wb = open_workbook_auto(path).map_err(|e| format!("Excel error: {e}"))?;
+    let sheet_names = wb.sheet_names().to_owned();
+    let sheet = sheet_names.first().ok_or("No sheets found")?;
+    let range = wb.worksheet_range(sheet).map_err(|e| format!("Sheet error: {e}"))?;
+
+    let mut rows = range.rows();
+
+    let headers: Vec<String> = match rows.next() {
+        Some(row) => row.iter().enumerate().map(|(i, c)| {
+            let s = match c {
+                Data::String(s) => s.trim().to_string(),
+                Data::Empty => format!("col{i}"),
+                other => other.to_string(),
+            };
+            let s = sanitize(&s);
+            if s.is_empty() { format!("col{i}") } else { s }
+        }).collect(),
+        None => return Err("Empty sheet".into()),
+    };
+
+    let data: Vec<Vec<Data>> = rows.map(|r| r.to_vec()).collect();
+
+    // Infer column types: DOUBLE if any numeric, else VARCHAR
+    let col_types: Vec<&str> = (0..headers.len()).map(|i| {
+        let numeric = data.iter().any(|r| matches!(r.get(i), Some(Data::Float(_))));
+        if numeric { "DOUBLE" } else { "VARCHAR" }
+    }).collect();
+
+    let cols_ddl: String = headers.iter().zip(&col_types)
+        .map(|(h, t)| format!("\"{h}\" {t}"))
+        .collect::<Vec<_>>().join(", ");
+    conn.execute_batch(&format!("CREATE OR REPLACE TABLE \"{name}\" ({cols_ddl})"))
+        .map_err(|e| e.to_string())?;
+
+    // Batch insert rows
+    const BATCH: usize = 500;
+    let mut buf: Vec<String> = Vec::with_capacity(BATCH);
+
+    for row in &data {
+        let vals: Vec<String> = (0..headers.len()).map(|i| {
+            match row.get(i) {
+                Some(Data::Float(f)) => f.to_string(),
+                Some(Data::String(s)) => format!("'{}'", s.replace('\'', "''")),
+                Some(Data::Bool(b)) => (if *b { "true" } else { "false" }).to_string(),
+                _ => "NULL".to_string(),
+            }
+        }).collect();
+        buf.push(format!("({})", vals.join(",")));
+        if buf.len() >= BATCH {
+            conn.execute_batch(&format!("INSERT INTO \"{name}\" VALUES {}", buf.join(",")))
+                .map_err(|e| e.to_string())?;
+            buf.clear();
+        }
+    }
+    if !buf.is_empty() {
+        conn.execute_batch(&format!("INSERT INTO \"{name}\" VALUES {}", buf.join(",")))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 pub fn describe(conn: &Connection, name: &str) -> Result<Vec<ColumnInfo>> {
