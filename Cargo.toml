@@ -1,6 +1,6 @@
 [package]
 name = "pipetable"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 description = "Query local data files with natural language or SQL — MCP server + CLI"
 homepage = "https://pipetable.com"
